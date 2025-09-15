@@ -297,8 +297,9 @@ void testStdMutex(size_t numThreads, size_t iterations) {
 
 ## 注意事项 / Notes
 
-1. SmartLock 可以同时适配长和短的临界区 / suitable for both short and long critical sections
+1. SmartLock 可以同时适配长和短的临界区 /SmartLock is suitable for both short and long critical sections
 2. BHGCDController 的线程优先级在创建时固定，不可修改 / priority is fixed after creation
-3. barrier 任务可以用于简化读写互斥操作，无需在操作代码中添加对读写锁的使用 / barrier tasks simplify read-write locks
+3. BHGCDController 提供 4个默认的任务队列：ui high normal background / The BHGCDController provides 4 default task queues: ui, high, normal, background
+4. barrier 任务可以用于简化读写互斥操作，无需在操作代码中添加对读写锁的使用 / barrier tasks simplify read-write locks
 
 ---
