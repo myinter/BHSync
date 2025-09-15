@@ -105,7 +105,7 @@ void printC() {
     BHGCD::queues.high.enqueue([] {
             for (int i = 0; i < 100; ++i) {
                 semC.acquire();
-                std::cout << "C";
+                std::cout << "C-";
                 semA.release(2);
             }
     });
