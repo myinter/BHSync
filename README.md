@@ -121,6 +121,7 @@ int main() {
 
 * 功能说明 / Description:
   使用原子信号量控制线程交替打印，保证顺序执行 AA -> B -> C。
+  
   Demonstrates atomic semaphore for synchronized printing in order: AA -> B -> C.
 
 ```text
@@ -215,9 +216,11 @@ AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-
 
 * 功能说明 / Description:
   演示 barrier 任务阻塞普通任务的执行顺序，类似 iOS/MacOS GCD 的行为。
+  
   Demonstrates barrier tasks blocking normal tasks, mimicking iOS/MacOS GCD behavior.
   
   BHGCDController 提供的任务队列，可以在多线程环境下确保任务开启的先后顺序，使用FIFO的顺序触发任务执行。同时可以利用barrier方式派发任务实现读写互斥。
+
   The task queue provided by BHGCDController can ensure the sequence of task initiation in a multi-threaded environment.
   Meanwhile, it can use the barrier method to dispatch tasks to achieve mutual exclusion between reading and writing.
 ---
@@ -295,7 +298,8 @@ void testStdMutex(size_t numThreads, size_t iterations) {
 
 * 功能说明 / Description:
   对比 SmartLock 与 std::mutex 的性能消耗。
-  Compare the performance of SmartSpinLock vs std::mutex.
+  
+  Compare the performance of SmartLock vs std::mutex.
 
 ---
 
