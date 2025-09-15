@@ -233,6 +233,11 @@ enabling read–write mutual exclusion as well as structured task grouping and p
 
 ### 4. SmartLock 与 std::mutex 性能对比 / Performance Demo
 
+* 功能说明 / Description:
+  对比 SmartLock 与 std::mutex 的性能消耗。
+  
+  Compare the performance of SmartLock vs std::mutex.
+
 ```cpp
 
 // ---------------------------
@@ -354,10 +359,6 @@ Conclusion: Whether or not time-consuming operations are included in the critica
 the significant reduction in overhead provided by SmartLock 
 can greatly enhance the performance of synchronization among concurrent tasks.
 The performance of SmartLock is much higher than that of std:mutex!!!
-* 功能说明 / Description:
-  对比 SmartLock 与 std::mutex 的性能消耗。
-  
-  Compare the performance of SmartLock vs std::mutex.
 
 ---
 
