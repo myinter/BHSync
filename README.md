@@ -47,7 +47,7 @@ This library provides a set of high-performance thread synchronization tools bas
 ```cpp
 #include "Sync.hpp"
 
-BHGCD::SmartSpinLock lock;
+SmartLock lock;
 
 void criticalSection() {
     lock.lock();   // 加锁 / lock
@@ -56,7 +56,7 @@ void criticalSection() {
 }
 
 // 递归锁 / Recursive lock
-BHGCD::RecursiveSmartSpinLock rlock;
+RecursiveSmartLock rlock;
 
 void recursiveFunction(int depth) {
     rlock.lock();
