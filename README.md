@@ -219,15 +219,20 @@ AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-
   
   Demonstrates barrier tasks blocking normal tasks, mimicking iOS/MacOS GCD behavior.
   
-  BHGCDController 提供的任务队列，可以在多线程环境下确保任务开启的先后顺序，使用FIFO的顺序触发任务执行。同时可以利用barrier方式派发任务实现读写互斥。
+  BHGCDController 提供的任务队列，可以在多线程环境下确保任务开启的先后顺序，使用FIFO的顺序触发任务执行。
+  同时可以利用barrier方式派发任务实现读写互斥，或者任务的分组/分阶段。
 
-  The task queue provided by BHGCDController can ensure the sequence of task initiation in a multi-threaded environment.
-  Meanwhile, it can use the barrier method to dispatch tasks to achieve mutual exclusion between reading and writing.
+
+The task queue provided by BHGCDController guarantees that tasks are initiated in submission order within a multithreaded environment, 
+ensuring FIFO-based execution.
+
+In addition, it supports barrier-based task dispatching, 
+enabling read–write mutual exclusion as well as structured task grouping and phased execution.
+
 ---
 
 ### 4. SmartLock 与 std::mutex 性能对比 / Performance Demo
 
-1，临界区内无耗时操作，只修改一个变量的内容：
 ```cpp
 
 // ---------------------------
@@ -292,10 +297,10 @@ void testStdMutex(size_t numThreads, size_t iterations) {
 ```
 性能差异 Difference in performance:
 
-临界区中只修改counter变量，无任何其他操作：
+1，临界区内无耗时操作，只修改一个变量的内容：
 
-The code in the critical section only modifies 
-the counter variable, without performing any other operations:
+The code in the critical section only modifies the counter variable, 
+without performing any other operations:
 
 ```text
 [SmartLock] Threads=8, Iterations=10000000, Counter=80000000, Time=812ms
