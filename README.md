@@ -292,9 +292,10 @@ void testStdMutex(size_t numThreads, size_t iterations) {
 ```
 性能差异 Difference in performance:
 
-临界区只修改counter变量，无任何其他操作：
-The critical section is only executed when multiple threads modify the counter variable 
-but there are no other operations:
+临界区中只修改counter变量，无任何其他操作：
+
+The code in the critical section only modifies 
+the counter variable, without performing any other operations:
 
 ```text
 [SmartLock] Threads=8, Iterations=10000000, Counter=80000000, Time=812ms
@@ -302,7 +303,7 @@ but there are no other operations:
 ```
 临界区内添加模拟的50ns耗时操作：
 
-Add simulated 50ns time-consuming operations 
+Add simulated 50ns time-consuming operation 
 within the critical section:
 
 ```text
@@ -312,7 +313,7 @@ within the critical section:
 
 临界区内添加模拟的300ns耗时操作：
 
-Add simulated 300ns time-consuming operations 
+Add simulated 300ns time-consuming operation 
 within the critical section:
 
 ```text
@@ -322,7 +323,7 @@ within the critical section:
 
 临界区内添加模拟的1ms（10000ns）耗时操作：
 
-Add simulated 1ms (10000ns) time-consuming operations 
+Add simulated 1ms (10000ns) time-consuming operation
 within the critical section:
 
 ```text
@@ -332,7 +333,7 @@ within the critical section:
 
 临界区内添加模拟的3ms（30000ns）耗时操作：
 
-Add simulated 3ms (30000ns) time-consuming operations 
+Add simulated 3ms (30000ns) time-consuming operation 
 within the critical section:
 
 ```text
