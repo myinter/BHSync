@@ -93,14 +93,20 @@ protected:
         int spins = 0, yields = 0;  // 当前自旋和让出计数 / Current spin and yield counters
         while (true) {
             // 尝试获得锁 / Try to acquire lock
-            if (!flag.test_and_set(std::memory_order_acquire)) return;
+            if (!flag.test_and_set(std::memory_order_acquire)) 
+             return;
             // 自旋 / Spin
-            if (++spins < spinCount) continue;
+            if (++spins < spinCount) 
+               continue;
             // 自旋次数过多 让出CPU / If spinned to many circles,then Yield CPU
             if (++yields < yieldCount) {
                 std::this_thread::yield();
                 continue;
             }
+            // 自选和让出CPU计数数清零 / Reset yieldCount and spinCount
+            yieldCount = 0;
+            spinCount = 0;
+
             // 循环次数是在太多，微休眠 / If loop ran to many time,sleep briefly.
             std::this_thread::sleep_for(std::chrono::microseconds(sleepMicros));
         }
