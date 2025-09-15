@@ -190,7 +190,7 @@ AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-
 [UI] Barrier Task running (waits all before, blocks after) on thread 0x16ff9f000
 
 [UI] Task 5 after barrier, and before another barrier, running on thread 0x16ff13000
-[UI] Task 6 after barrier, and before another barrier, running on thread
+[UI] Task 6 after barrier, and before another barrier, running on thread 0x17002b000
 [UI] Task 7 after barrier, and before another barrier, running on thread 0x16ff9f000
 [UI] Task 8 after barrier, and before another barrier, running on thread 0x16ff13000
 [UI] Task 9 after barrier, and before another barrier, running on thread 0x16ff9f000
