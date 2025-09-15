@@ -10,16 +10,16 @@
 本库提供一套基于 `std::atomic` 的高性能线程同步工具，复刻了 iOS 的 GCD 框架思想，包括以下模块：
 This library provides a set of high-performance thread synchronization tools based on `std::atomic`, inspired by the iOS GCD framework. Modules include:
 
-* **SmartSpinLock**：高性能自旋锁，支持自动让出 CPU / 休眠
+* **SmartLock**：高性能自旋锁，支持自动让出 CPU / 休眠
   High-performance spin lock, supports automatic CPU yield/sleep
-* **RecursiveSmartSpinLock**：支持同线程递归锁，不阻塞自身
+* **RecursiveSmartLock**：支持同线程递归锁，不阻塞自身
   Recursive lock for the same thread without self-blocking
 * **AtomicSemaphore**：原子信号量，多线程同步控制
   Atomic semaphore for multi-thread synchronization
 * **BHGCDController**：线程池管理器，支持 barrier 任务和普通任务的有序执行
   Thread pool manager, supports ordered execution of barrier and normal tasks
-  复刻 iOS GCD 框架思想
-  Inspired by the iOS Grand Central Dispatch (GCD) framework
+  复刻 Mac/iOS GCD 框架思想
+  Inspired by the Mac/iOS Grand Central Dispatch (GCD) framework
 
 ---
 
