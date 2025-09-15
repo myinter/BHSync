@@ -227,6 +227,7 @@ AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-
 
 ### 4. SmartLock 与 std::mutex 性能对比 / Performance Demo
 
+1，临界区内无耗时操作，只修改一个变量的内容：
 ```cpp
 
 // ---------------------------
@@ -291,11 +292,62 @@ void testStdMutex(size_t numThreads, size_t iterations) {
 ```
 性能差异 Difference in performance:
 
+临界区只修改counter变量，无任何其他操作：
+The critical section is only executed when multiple threads modify the counter variable 
+but there are no other operations:
+
 ```text
 [SmartLock] Threads=8, Iterations=10000000, Counter=80000000, Time=812ms
 [std::mutex] Threads=8, Iterations=10000000, Counter=80000000, Time=3024ms
 ```
+临界区内添加模拟的50ns耗时操作：
 
+Add simulated 50ns time-consuming operations 
+within the critical section:
+
+```text
+[SmartLock] Threads=8, Iterations=100000, Counter=800000, Time=2145ms
+[std::mutex] Threads=8, Iterations=100000, Counter=800000, Time=12408ms
+```
+
+临界区内添加模拟的300ns耗时操作：
+
+Add simulated 300ns time-consuming operations 
+within the critical section:
+
+```text
+[SmartLock] Threads=8, Iterations=4000, Counter=32000, Time=81ms
+[std::mutex] Threads=8, Iterations=4000, Counter=32000, Time=421ms
+```
+
+临界区内添加模拟的1ms（10000ns）耗时操作：
+
+Add simulated 1ms (10000ns) time-consuming operations 
+within the critical section:
+
+```text
+[SmartLock] Threads=8, Iterations=4000, Counter=32000, Time=76ms
+[std::mutex] Threads=8, Iterations=4000, Counter=32000, Time=440ms
+```
+
+临界区内添加模拟的3ms（30000ns）耗时操作：
+
+Add simulated 3ms (30000ns) time-consuming operations 
+within the critical section:
+
+```text
+[SmartLock] Threads=8, Iterations=4000, Counter=32000, Time=84ms
+[std::mutex]  Threads=8, Iterations=4000, Counter=32000, Time=641ms
+```
+
+
+结论：无论临界区内是否包含耗时操作，SmartLock显著降低的开销都可以成倍提高并发任务之间同步时的性能。
+使用SmartLock性能远远高于std:mutex ！！！！
+
+Conclusion: Whether or not time-consuming operations are included in the critical section, 
+the significant reduction in overhead provided by SmartLock 
+can greatly enhance the performance of synchronization among concurrent tasks.
+The performance of SmartLock is much higher than that of std:mutex!!!
 * 功能说明 / Description:
   对比 SmartLock 与 std::mutex 的性能消耗。
   
