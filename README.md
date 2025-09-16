@@ -49,7 +49,7 @@ Modules include:
 ### 1. SmartLock / RecursiveSmartLock
 
 ```cpp
-#include "Sync.hpp"
+#include "BHSync.hpp"
 
 SmartLock lock;
 
@@ -76,7 +76,7 @@ void recursiveFunction(int depth) {
 ```cpp
 #include <iostream>
 #include <thread>
-#include "Sync.hpp"
+#include "BHSync.hpp"
 
 AtomicSemaphore semA(2), semB(0), semC(0);
 
@@ -137,7 +137,7 @@ AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-
 
 ```cpp
 #include <iostream>
-#include "Sync.hpp"
+#include "BHSync.hpp"
 
     // 1. 向 UI 队列提交一些普通任务
     for (int i = 0; i < 5; ++i) {
