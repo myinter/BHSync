@@ -4,7 +4,7 @@
  *
  * 文件介绍 / Description:
  * 本文件提供一套基于 std::atomic 的同步工具，包括：
- *   - SmartSpinLock         : 高性能自旋锁，支持自动让出 CPU / 休眠
+ *   - SmartLock             : 高性能自旋锁，支持自动让出 CPU / 休眠
  *                             High-performance spin lock, supports automatic CPU yield/sleep
  *   - RecursiveSmartSpinLock: 支持同线程递归锁，不阻塞自身
  *                             Recursive lock for the same thread without self-blocking
