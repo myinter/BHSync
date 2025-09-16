@@ -41,9 +41,6 @@
 #include <functional>
 #include <chrono>
 #include <iostream>
-#include <optional>
-#include <unordered_map>
-#include <mutex>
 
 #ifdef _WIN32
 #include <windows.h>  // Windows API
