@@ -30,35 +30,8 @@
  *      Barriers can be used for read-write mutual exclusion, simplifying read-write lock operations
  *   6. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
  *      Thread pool scheduling and barriers mimic the design of iOS/MacOS Grand Center Dispatching
-  * 许可协议 / License: MIT
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * 本软件免费提供给任何人使用，包括但不限于使用、复制、修改、合并、发布、分发、再许可及销售。
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * 在软件的所有副本或主要部分中必须包含上述版权声明和许可声明。
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- *
- * 本软件按“原样”提供，不提供任何明示或暗示的担保，包括但不限于对适销性、
- * 特定用途适用性或非侵权的保证。在任何情况下，作者或版权持有人均不对因软件使用
- * 或其他交易引起的任何索赔、损害或其他责任负责。
-
  ******************************************************************************/
+
 
 #pragma once
 #include <atomic>
@@ -83,37 +56,42 @@
 // ================= SpinLockBase 自旋锁基类 =================
 template<typename Derived>
 class SpinLockBase {
+private:
+    uint8_t actualSleepMicros_;
+
 protected:
     std::atomic_flag flag = ATOMIC_FLAG_INIT;  // 原子标志位 / Atomic flag
-    int spinCount;  // 自旋次数 / Spin count
-    int yieldCount;  // 让出CPU次数 / Yield count
-    int sleepMicros;  // 休眠微秒数 / Sleep microseconds
+    uint8_t spinCount;  // 自旋次数 / Spin count
+    uint8_t yieldCount;  // 让出CPU次数 / Yield count
+    size_t sleepMicros;  // 休眠微秒数 / Sleep microseconds
 
     void spinLockLoop() {
         int spins = 0, yields = 0;  // 当前自旋和让出计数 / Current spin and yield counters
         while (true) {
             // 尝试获得锁 / Try to acquire lock
-            if (!flag.test_and_set(std::memory_order_acquire)) 
-             return;
+            if (!flag.test_and_set(std::memory_order_acquire)) {
+                actualSleepMicros_ = 0;
+                // 自旋和让出CPU次数清零 / Reset yieldCount and spinCount
+                yieldCount = 0;
+                spinCount = 0;
+                return;
+            }
             // 自旋 / Spin
-            if (++spins < spinCount) 
-               continue;
+            if (++spins < spinCount)
+                continue;
             // 自旋次数过多 让出CPU / If spinned to many circles,then Yield CPU
             if (++yields < yieldCount) {
                 std::this_thread::yield();
                 continue;
             }
-            // 自选和让出CPU计数数清零 / Reset yieldCount and spinCount
-            yieldCount = 0;
-            spinCount = 0;
-
-            // 循环次数是在太多，微休眠 / If loop ran to many time,sleep briefly.
-            std::this_thread::sleep_for(std::chrono::microseconds(sleepMicros));
+            actualSleepMicros_ += sleepMicros;
+            // 循环等待次数实在太多，微休眠 / If loop ran to many time,sleep briefly.
+            std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros_));
         }
     }
 
 public:
-    SpinLockBase(int spin = 5, int yield = 8, int sleep_us = 2000)
+    SpinLockBase(int spin = 5, int yield = 8, int sleep_us = 3)
         : spinCount(spin), yieldCount(yield), sleepMicros(sleep_us) {}
 
     void unlock() { flag.clear(std::memory_order_release); }  // 解锁 / Unlock
@@ -159,17 +137,41 @@ public:
 // ================= AtomicSemaphore 原子信号量 =================
 class AtomicSemaphore {
     std::atomic<int> count;  // 计数 / Counter
+    uint8_t repeatCount;
+    uint8_t sleepMicroseconds;
+
+private:
+    uint16_t actualSleepMicroseconds;
+
 public:
-    explicit AtomicSemaphore(int init = 0) : count(init) {}  // 构造函数 / Constructor
-    void release(int n = 1) { count.fetch_add(n, std::memory_order_release); }  // 释放n个资源 / Release n resources
+    explicit AtomicSemaphore(int init = 0) : count(init),repeatCount(0),sleepMicroseconds(3) {}  // 构造函数 / Constructor
+
+    void release(int n = 1) {
+        count.fetch_add(n, std::memory_order_release);
+    }  // 释放n个资源 / Release n resources
+
     void acquire(int n = 1) {  // 获取资源 / Acquire resource
         while (true) {
             int expected = count.load(std::memory_order_acquire);  // 读取当前计数 / Load current count
             if (expected > 0 && count.compare_exchange_weak(expected, expected - n,
-                                                          std::memory_order_acq_rel)) return;  // 尝试减1成功则返回 / Try decrement and return if successful
+                                                          std::memory_order_acq_rel)) {
+                // 尝试减1成功则返回 / Try decrement and return if successful
+                // 清空等大四计数 / Clear count for waiting
+                actualSleepMicroseconds = 0;
+                repeatCount = 0;
+                return;
+            }
+
             std::this_thread::yield();  // 失败则让出CPU / Yield CPU
+            repeatCount++;
+            if (repeatCount > 3) {
+                actualSleepMicroseconds += sleepMicroseconds;
+                std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicroseconds));
+            }
+
         }
     }
+
 };
 
 // ================= ThreadPriority 线程优先级枚举 =================
@@ -256,7 +258,7 @@ public:
 
     ~BHGCDController() { stop(); }
 
-    // 普通任务入队 Regular task entry into the queue
+    // 普通任务
     void enqueue(const std::function<void()>& func) {
         TaskItem task{func, false};
         lock.lock();
@@ -265,23 +267,13 @@ public:
         sem.release();
     }
 
-    // barrier 任务入队.Barrier 任务会等待之前的任务完成，同时阻塞住后续入队的任务。
-    // Barrier tasks entry into the queue. 
-    // Barrier tasks will wait for former tasks and blocks later tasks
+    // barrier 任务
     void enqueueBarrier(const std::function<void()>& func) {
         TaskItem task{func, true};
         lock.lock();
         tasks.push(task);
         lock.unlock();
         sem.release();
-    }
-
-    void stop() {
-        stopFlag.store(true);
-        sem.release((int)threads.size());
-        for (auto &t : threads)
-            if (t.joinable()) t.join();
-        threads.clear();
     }
 
 private:
@@ -295,7 +287,9 @@ private:
     std::atomic<bool> stopFlag;
 
     std::queue<TaskItem> tasks;
-    std::atomic<bool> barrierActive;  // barrier 正在执行的标志符号。 Flag for whether there is barrier task in running.
+    std::atomic<bool> barrierActive;  // barrier 正在执行
+    std::atomic<int> normalTaskCount;  // normal task 正在执行
+
     AtomicSemaphore sem;
 
     const ThreadPriority poolPriority;
@@ -307,10 +301,18 @@ private:
         }
     }
 
+    void stop() {
+        stopFlag.store(true);
+        sem.release((int)threads.size());
+        for (auto &t : threads)
+            if (t.joinable()) t.join();
+        threads.clear();
+    }
+
     void workLoop() {
 
         while (!stopFlag.load()) {
-            
+
             // 确保没有正在运行的格栅任务 Ensure there is no running barrier tasks
 
             if (barrierActive.load() == false) {
@@ -320,33 +322,35 @@ private:
                 lock.lock();
 
                 if (!tasks.empty()) {
-                    TaskItem task = tasks.front();
 
-                    // barrier 优先处理
+                    TaskItem &task = tasks.front();
+
+                    // barrier / normal
                     if (task.isBarrier) {
-                        if (!barrierActive.load()) {
-                            tasks.pop();
-                            barrierActive.store(true); // 阻止其他线程取任务
-                            lock.unlock();
-                            task.func(); // 立即执行 barrier
-                            barrierActive.store(false); // barrier 完成，允许其他任务继续
-                            continue;
+                        tasks.pop();
+                        lock.unlock();
+                        barrierActive.store(true); // 阻止其他线程取任务
+                        while (normalTaskCount.load() != 0) {
+                            std::this_thread::yield();
                         }
+                        task.func(); // 立即执行 barrier
+                        barrierActive.store(false); // barrier 完成，允许其他任务继续
+                        continue;
                     } else {
-                        if (!barrierActive.load()) {
-                            tasks.pop();
-                            lock.unlock();
-
-                            task.func(); // 立即执行普通任务
-                            continue;
-                        }
+                        tasks.pop();
+                        lock.unlock();
+                        normalTaskCount.fetch_add(1, std::memory_order_release);
+                        task.func(); // 立即执行普通任务
+                        normalTaskCount.fetch_sub(1, std::memory_order_release);
+                        continue;
                     }
                 }
 
                 lock.unlock();
             }
-            // Release the CPU when the queue is empty or when there is a barrier task is running.
-            std::this_thread::yield(); // 队列为空或 存在barrier 阻塞时让出 CPU
+
+            std::this_thread::yield(); // 队列为空或 barrier 阻塞时让出 CPU
+
         }
     }
 };
