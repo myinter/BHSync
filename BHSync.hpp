@@ -10,9 +10,9 @@
  *                             Recursive lock for the same thread without self-blocking
  *   - AtomicSemaphore       : 原子信号量，多线程同步控制
  *                             Atomic semaphore for multi-thread synchronization
- *   - BHGCDController       : 基于 SmartSpinLock + atomic 的线程池管理器
+ *   - BHGCDController       : 基于 SmartLock + atomic 的线程池管理器
  *                             支持 barrier 任务和普通任务的有序执行
- *                             Thread pool manager using SmartSpinLock + atomic,
+ *                             Thread pool manager using SmartLock + atomic,
  *                             supports ordered execution of barrier and normal tasks
  *                             复刻了 MacOS/iOS 的 GCD 框架，借鉴其思想
  *                             Inspired by MacOS/iOS Grand Central Dispatch (GCD) framework
@@ -50,46 +50,55 @@
 #include <sched.h>
 #endif
 
+
+template <typename T>
+inline T wrap16(T value) {
+    return value & 0xFFFFu; // 0xFFFF = 65535
+}
+
 // ================= SpinLockBase 自旋锁基类 =================
 template<typename Derived>
 class SpinLockBase {
 private:
-    uint8_t actualSleepMicros_;
 
 protected:
     std::atomic_flag flag = ATOMIC_FLAG_INIT;  // 原子标志位 / Atomic flag
-    uint8_t spinCount;  // 自旋次数 / Spin count
-    uint8_t yieldCount;  // 让出CPU次数 / Yield count
-    size_t sleepMicros;  // 休眠微秒数 / Sleep microseconds
+    uint32_t _maxSpinCount;  // 自旋次数 / Spin count
+    uint32_t _maxYieldCount;  // 让出CPU次数 / Yield count
+    uint32_t _sleepMicros;  // 休眠微秒数 / Sleep microseconds
 
     void spinLockLoop() {
-        int spins = 0, yields = 0;  // 当前自旋和让出计数 / Current spin and yield counters
+        uint32_t spins = 0, yields = 0;  // 当前自旋和让出计数 / Current spin and yield counters
+        uint32_t actualSleepMicros = 0;
+
         while (true) {
             // 尝试获得锁 / Try to acquire lock
             if (!flag.test_and_set(std::memory_order_acquire)) {
-                actualSleepMicros_ = 0;
-                // 自旋和让出CPU次数清零 / Reset yieldCount and spinCount
-                yieldCount = 0;
-                spinCount = 0;
+                // 实际休眠长度清零 / Reset actualSleepMicros_
                 return;
             }
+
             // 自旋 / Spin
-            if (++spins < spinCount)
+            if (++spins < _maxSpinCount)
                 continue;
+
             // 自旋次数过多 让出CPU / If spinned to many circles,then Yield CPU
-            if (++yields < yieldCount) {
+            if (++yields < _maxYieldCount) {
                 std::this_thread::yield();
                 continue;
             }
-            actualSleepMicros_ += sleepMicros;
+
+            actualSleepMicros += _sleepMicros;
+            actualSleepMicros = wrap16(actualSleepMicros);
+
             // 循环等待次数实在太多，微休眠 / If loop ran to many time,sleep briefly.
-            std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros_));
+            std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros));
         }
     }
 
 public:
     SpinLockBase(int spin = 5, int yield = 8, int sleep_us = 3)
-        : spinCount(spin), yieldCount(yield), sleepMicros(sleep_us) {}
+        : _maxSpinCount(spin), _maxYieldCount(yield), _sleepMicros(sleep_us) {}
 
     void unlock() { flag.clear(std::memory_order_release); }  // 解锁 / Unlock
 };
@@ -134,37 +143,51 @@ public:
 // ================= AtomicSemaphore 原子信号量 =================
 class AtomicSemaphore {
     std::atomic<int> count;  // 计数 / Counter
-    uint8_t repeatCount;
-    uint8_t sleepMicroseconds;
+    uint32_t _sleepMicroseconds;
 
 private:
-    uint16_t actualSleepMicroseconds;
+    uint32_t _maxRepeatCount;
+    uint32_t _maxYieldCount;
 
 public:
-    explicit AtomicSemaphore(int init = 0) : count(init),repeatCount(0),sleepMicroseconds(3) {}  // 构造函数 / Constructor
+    explicit AtomicSemaphore(int init = 0,
+                             uint32_t maxRepeat = 3,
+                             uint32_t maxYield = 3) :count(init),_maxRepeatCount(maxRepeat),_maxYieldCount(maxYield),_sleepMicroseconds(3) {}  // 构造函数 / Constructor
 
+    // 释放n个资源 / Release n resources
     void release(int n = 1) {
         count.fetch_add(n, std::memory_order_release);
-    }  // 释放n个资源 / Release n resources
+    }
 
-    void acquire(int n = 1) {  // 获取资源 / Acquire resource
+    // 获取资源 / Acquire resource
+    void acquire(int n = 1) {
+
+        uint32_t repeatCount = 0,yieldCount = 0,actualSleepMicroseconds = 0;
+
         while (true) {
-            int expected = count.load(std::memory_order_acquire);  // 读取当前计数 / Load current count
+            // 读取当前计数 / Load current count
+
+            int expected = count.load(std::memory_order_acquire);
             if (expected > 0 && count.compare_exchange_weak(expected, expected - n,
                                                           std::memory_order_acq_rel)) {
-                // 尝试减1成功则返回 / Try decrement and return if successful
-                // 清空等大四计数 / Clear count for waiting
-                actualSleepMicroseconds = 0;
-                repeatCount = 0;
+                // 尝试减n成功则返回 / Try decrement and return if successful
                 return;
             }
 
-            std::this_thread::yield();  // 失败则让出CPU / Yield CPU
-            repeatCount++;
-            if (repeatCount > 3) {
-                actualSleepMicroseconds += sleepMicroseconds;
-                std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicroseconds));
+            if (repeatCount < _maxRepeatCount) {
+                repeatCount++;
+                continue;
             }
+
+            if (yieldCount < _maxRepeatCount) {
+                yieldCount++;
+                std::this_thread::yield();  // 失败则让出CPU / Yield CPU
+                continue;
+            }
+
+            actualSleepMicroseconds += _sleepMicroseconds;
+            actualSleepMicroseconds = wrap16(actualSleepMicroseconds);
+            std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicroseconds));
 
         }
     }
@@ -257,20 +280,20 @@ public:
 
     // 普通任务
     void enqueue(const std::function<void()>& func) {
-        TaskItem task{func, false};
-        lock.lock();
-        tasks.push(task);
-        lock.unlock();
-        sem.release();
+        TaskItem task{std::move(func), false};
+        _tasksLock.lock();
+        _tasksQ.emplace(task);
+        _tasksLock.unlock();
+        _tasksSem.release();
     }
 
     // barrier 任务
     void enqueueBarrier(const std::function<void()>& func) {
-        TaskItem task{func, true};
-        lock.lock();
-        tasks.push(task);
-        lock.unlock();
-        sem.release();
+        TaskItem task{std::move(func), true};
+        _tasksLock.lock();
+        _tasksQ.emplace(task);
+        _tasksLock.unlock();
+        _tasksSem.release();
     }
 
 private:
@@ -280,14 +303,15 @@ private:
     };
 
     std::vector<std::thread> threads;
-    SmartLock lock;
+    SmartLock _tasksLock;
     std::atomic<bool> stopFlag;
 
-    std::queue<TaskItem> tasks;
+    std::queue<TaskItem> _tasksQ;
     std::atomic<bool> barrierActive;  // barrier 正在执行
     std::atomic<int> normalTaskCount;  // normal task 正在执行
 
-    AtomicSemaphore sem;
+    // 用于workers 获取任务的信号量 / Semaphore used by workers to obtain tasks
+    AtomicSemaphore _tasksSem;
 
     const ThreadPriority poolPriority;
 
@@ -300,7 +324,7 @@ private:
 
     void stop() {
         stopFlag.store(true);
-        sem.release((int)threads.size());
+        _tasksSem.release((int)threads.size());
         for (auto &t : threads)
             if (t.joinable()) t.join();
         threads.clear();
@@ -314,43 +338,38 @@ private:
 
             if (barrierActive.load() == false) {
 
-                sem.acquire(); // 等待任务 Waiting for a task
+                _tasksSem.acquire(); // 等待任务 Waiting for a task
 
-                lock.lock();
+                _tasksLock.lock();
+                TaskItem &task = _tasksQ.front();
+                std::function<void()> taskFunc = std::move(task.func);
+                _tasksQ.pop();
+                _tasksLock.unlock();
 
-                if (!tasks.empty()) {
-
-                    TaskItem &task = tasks.front();
-
-                    // barrier / normal
-                    if (task.isBarrier) {
-                        tasks.pop();
-                        lock.unlock();
-                        barrierActive.store(true); // 阻止其他线程取任务
-                        while (normalTaskCount.load() != 0) {
-                            std::this_thread::yield();
-                        }
-                        task.func(); // 立即执行 barrier
-                        barrierActive.store(false); // barrier 完成，允许其他任务继续
-                        continue;
-                    } else {
-                        tasks.pop();
-                        lock.unlock();
-                        normalTaskCount.fetch_add(1, std::memory_order_release);
-                        task.func(); // 立即执行普通任务
-                        normalTaskCount.fetch_sub(1, std::memory_order_release);
-                        continue;
+                // barrier / normal
+                if (task.isBarrier) {
+                    barrierActive.store(true); // 阻止其他线程取任务
+                    while (normalTaskCount.load() != 0) {
+                        std::this_thread::yield();
                     }
+                    taskFunc(); // 立即执行 barrier
+                    barrierActive.store(false); // barrier 完成，允许其他任务继续
+                    continue;
+                } else {
+                    normalTaskCount.fetch_add(1, std::memory_order_release);
+                    taskFunc(); // 立即执行普通任务
+                    normalTaskCount.fetch_sub(1, std::memory_order_release);
+                    continue;
                 }
 
-                lock.unlock();
+            } else {
+                std::this_thread::yield(); // 队列为空或 barrier 阻塞时让出 CPU
             }
-
-            std::this_thread::yield(); // 队列为空或 barrier 阻塞时让出 CPU
 
         }
     }
 };
+
 // 默认全局控制器实例 / Default global controllers
 struct GlobalBHGCDControllers {
     BHGCDController ui{4, ThreadPriority::UI};
@@ -361,9 +380,5 @@ struct GlobalBHGCDControllers {
 
 // 以任务队列的名义对外暴露 Expose it externally in the name of a task queue.
 static GlobalBHGCDControllers queues;
-
-inline GlobalBHGCDControllers& GetBHGCDControllers() {
-    return queues;
-}
 
 }
