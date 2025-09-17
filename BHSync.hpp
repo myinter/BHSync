@@ -4,15 +4,15 @@
  *
  * 文件介绍 / Description:
  * 本文件提供一套基于 std::atomic 的同步工具，包括：
- *   - SmartSpinLock         : 高性能自旋锁，支持自动让出 CPU / 休眠
+ *   - SmartLock         : 高性能自旋锁，支持自动让出 CPU / 休眠
  *                             High-performance spin lock, supports automatic CPU yield/sleep
  *   - RecursiveSmartSpinLock: 支持同线程递归锁，不阻塞自身
  *                             Recursive lock for the same thread without self-blocking
  *   - AtomicSemaphore       : 原子信号量，多线程同步控制
  *                             Atomic semaphore for multi-thread synchronization
- *   - BHGCDController       : 基于 SmartLock + atomic 的队列任务式线程池管理器
+ *   - BHGCDController       : 基于 SmartLock + atomic 的队列式任务线程池管理器
  *                             支持 barrier 任务和普通任务的有序执行
- *                             Queue-based task-based thread pool manager based on SmartLock + atomic,
+ *                             Task-queue-based thread pool manager based on SmartLock + atomic,
  *                             supports ordered execution of barrier and normal tasks
  *                             复刻了 MacOS/iOS 的 GCD 框架，借鉴其思想
  *                             Inspired by MacOS/iOS Grand Central Dispatch (GCD) framework
@@ -31,7 +31,8 @@
  *   6. group dispatch 可以简化并行任务的依赖关系，在多个任务完成后执行后续操作
  *      Group dispatch can simplify the dependencies of concurrent tasks
  *      and perform subsequent operations after all the tasks are completed.
- *   7. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
+
+ *   6. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
  *      Thread pool scheduling and barriers mimic the design of iOS/MacOS Grand Center Dispatching
  ******************************************************************************/
 
