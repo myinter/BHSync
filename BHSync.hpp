@@ -10,9 +10,9 @@
  *                             Recursive lock for the same thread without self-blocking
  *   - AtomicSemaphore       : 原子信号量，多线程同步控制
  *                             Atomic semaphore for multi-thread synchronization
- *   - BHGCDController       : 基于 SmartLock + atomic 的线程池管理器
+ *   - BHGCDController       : 基于 SmartLock + atomic 的队列任务式线程池管理器
  *                             支持 barrier 任务和普通任务的有序执行
- *                             Thread pool manager using SmartLock + atomic,
+ *                             Queue-based task-based thread pool manager based on SmartLock + atomic,
  *                             supports ordered execution of barrier and normal tasks
  *                             复刻了 MacOS/iOS 的 GCD 框架，借鉴其思想
  *                             Inspired by MacOS/iOS Grand Central Dispatch (GCD) framework
@@ -28,7 +28,10 @@
  *      Barrier tasks can block normal tasks to guarantee execution order
  *   5. barrier 可以用于读写互斥场景，简化读写互斥操作
  *      Barriers can be used for read-write mutual exclusion, simplifying read-write lock operations
- *   6. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
+ *   6. group dispatch 可以简化并行任务的依赖关系，在多个任务完成后执行后续操作
+ *      Group dispatch can simplify the dependencies of concurrent tasks
+ *      and perform subsequent operations after all the tasks are completed.
+ *   7. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
  *      Thread pool scheduling and barriers mimic the design of iOS/MacOS Grand Center Dispatching
  ******************************************************************************/
 
