@@ -386,9 +386,9 @@ within the critical section:
 [std::mutex] Threads=8, Iterations=100000, Counter=800000, Time=12408ms
 ```
 
-临界区内添加模拟的300ns耗时操作：
+临界区内添加模拟的100ns耗时操作：
 
-Add simulated 300ns time-consuming operation 
+Add simulated 100ns time-consuming operation 
 within the critical section:
 
 ```text
@@ -396,9 +396,9 @@ within the critical section:
 [std::mutex] Threads=8, Iterations=4000, Counter=32000, Time=421ms
 ```
 
-临界区内添加模拟的 1000us耗时操作：
+临界区内添加模拟的 300us耗时操作：
 
-Add simulated 1000us time-consuming operation
+Add simulated 300us time-consuming operation
 within the critical section:
 
 ```text
@@ -406,9 +406,9 @@ within the critical section:
 [std::mutex] Threads=8, Iterations=4000, Counter=32000, Time=440ms
 ```
 
-临界区内添加模拟的 3000us 耗时操作：
+临界区内添加模拟的 1000us 耗时操作：
 
-Add simulated 3000us time-consuming operation 
+Add simulated 1000us time-consuming operation 
 within the critical section:
 
 ```text
