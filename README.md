@@ -232,13 +232,15 @@ enabling read–write mutual exclusion as well as structured task grouping and p
 ---
 
 ---
-### 4. BHGCDController 组派发和完成后回调 / Group-dispatch and callback after group of tasks finish
+### 4. BHGCDController 组派发和完成后回调
+Group-dispatch and callback after group of tasks finished
 
 ```cpp
 #include <iostream>
 #include "BHSync.hpp"
     
     // 申请一个有效的组的id，用于将任务组合起来
+    // Apply for an effective group ID to combine the tasks together
     int groupId = BHGCD::queues.ui.getGroupId();
 
     BHGCD::queues.ui.setCallbackForGroup(groupId, []() {
@@ -274,6 +276,7 @@ enabling read–write mutual exclusion as well as structured task grouping and p
     });
 
     // 将group启动起来
+    // Fire up the group of tasks
     BHGCD::queues.ui.fireGroup(groupId);
 
 ```
