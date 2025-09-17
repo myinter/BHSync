@@ -91,7 +91,7 @@ protected:
             actualSleepMicros += _sleepMicros;
             actualSleepMicros = wrap16(actualSleepMicros);
 
-            // 循环等待次数实在太多，微休眠 / If loop ran to many time,sleep briefly.
+            // 循环等待次数实在太多，微休眠 / If loop ran too many times,sleep briefly.
             std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros));
         }
     }
