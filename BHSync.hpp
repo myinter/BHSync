@@ -499,6 +499,7 @@ private:
         _groupActiveTaskCount.erase(groupId);
         _groupIdCallback.erase(groupId);
         _existGroups.erase(groupId);
+        _activeGroups.erase(groupId);
         _groupActiveTaskCount.erase(groupId);
     }
 
