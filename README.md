@@ -231,7 +231,69 @@ enabling read–write mutual exclusion as well as structured task grouping and p
 
 ---
 
-### 4. SmartLock 与 std::mutex 性能对比 / Performance Demo
+---
+### 4. BHGCDController 组派发和完成后回调 / Group-dispatch and callback after group of tasks finish
+
+```cpp
+#include <iostream>
+#include "BHSync.hpp"
+    
+    // 申请一个有效的组的id，用于将任务组合起来
+    int groupId = BHGCD::queues.ui.getGroupId();
+
+    BHGCD::queues.ui.setCallbackForGroup(groupId, []() {
+        std::cout<<"一家人口都吃完饭了！ The entire family has finished eating!"<<std::endl;
+    });
+
+    BHGCD::queues.ui.enqueueGroup(groupId, []() {
+        std::cout<<"爸爸吃饭  Father eating"<<std::endl;
+    });
+
+    BHGCD::queues.ui.enqueue([]() {
+        std::cout<<"普通任务 Normal task"<<std::endl;
+    });
+
+    BHGCD::queues.ui.enqueueGroup(groupId, []() {
+        std::cout<<"妈妈吃饭 Mother eating "<<std::endl;
+    });
+
+    BHGCD::queues.ui.enqueue([]() {
+        std::cout<<"普通任务 normal task"<<std::endl;
+    });
+
+    BHGCD::queues.ui.enqueueGroup(groupId, []() {
+        std::cout<<"孩子吃饭 Child eating"<<std::endl;
+    });
+
+    BHGCD::queues.ui.enqueueGroup(groupId, []() {
+        std::cout<<"爷爷奶奶吃饭 Grandparents having dinner"<<std::endl;
+    });
+
+    BHGCD::queues.ui.enqueueGroup(groupId, []() {
+        std::cout<<"外公外婆吃饭 Grandparents from mothers' side having dinner"<<std::endl;
+    });
+
+    // 将group启动起来
+    BHGCD::queues.ui.fireGroup(groupId);
+
+```
+```text
+
+  爸爸吃饭  Father eating
+  普通任务 Normal task
+  爷爷奶奶吃饭 Grandparents having dinner
+  普通任务 normal task
+  外公外婆吃饭 Grandparents from mothers' side having dinner
+  孩子吃饭 Child eating
+  妈妈吃饭 Mother eating 
+  一家人口都吃完饭了！ The entire family has finished eating!
+
+```
+
+---
+
+
+### 5. SmartLock 与 std::mutex 性能对比 / Performance Demo
 
 * 功能说明 / Description:
   对比 SmartLock 与 std::mutex 的性能消耗。
