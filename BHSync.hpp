@@ -4,7 +4,7 @@
  *
  * 文件介绍 / Description:
  * 本文件提供一套基于 std::atomic 的同步工具，包括：
- *   - SmartLock             : 高性能自旋锁，支持自动让出 CPU / 休眠
+ *   - SmartSpinLock         : 高性能自旋锁，支持自动让出 CPU / 休眠
  *                             High-performance spin lock, supports automatic CPU yield/sleep
  *   - RecursiveSmartSpinLock: 支持同线程递归锁，不阻塞自身
  *                             Recursive lock for the same thread without self-blocking
@@ -41,6 +41,9 @@
 #include <functional>
 #include <chrono>
 #include <iostream>
+#include <unordered_map>
+#include <unordered_set>
+#include <random>
 
 #ifdef _WIN32
 #include <windows.h>  // Windows API
@@ -52,17 +55,38 @@
 
 
 template <typename T>
+inline T wrap20(T value) {
+    return value & 0xFFFFFu; // 0xFFFF = 65535
+}
+
+template <typename T>
 inline T wrap16(T value) {
     return value & 0xFFFFu; // 0xFFFF = 65535
+}
+
+template <typename T>
+inline T wrap12(T value) {
+    return value & 0xFFFu; // 0xFFF = 4095
+}
+
+template <typename T>
+inline T wrap8(T value) {
+    return value & 0xFFu; // 0xFF = 255
+}
+
+int randomInt(int min = 0, int max = 1000000) {
+    static std::mt19937 engine{std::random_device{}()};
+    std::uniform_int_distribution<int> dist(min, max);
+    return dist(engine);
 }
 
 // ================= SpinLockBase 自旋锁基类 =================
 template<typename Derived>
 class SpinLockBase {
 private:
+    std::atomic_flag flag = ATOMIC_FLAG_INIT;  // 原子标志位 / Atomic flag
 
 protected:
-    std::atomic_flag flag = ATOMIC_FLAG_INIT;  // 原子标志位 / Atomic flag
     uint32_t _maxSpinCount;  // 自旋次数 / Spin count
     uint32_t _maxYieldCount;  // 让出CPU次数 / Yield count
     uint32_t _sleepMicros;  // 休眠微秒数 / Sleep microseconds
@@ -91,7 +115,7 @@ protected:
             actualSleepMicros += _sleepMicros;
             actualSleepMicros = wrap16(actualSleepMicros);
 
-            // 循环等待次数实在太多，微休眠 / If loop ran too many times,sleep briefly.
+            // 循环等待次数实在太多，微休眠 / If loop ran to many time,sleep briefly.
             std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros));
         }
     }
@@ -171,6 +195,7 @@ public:
             if (expected > 0 && count.compare_exchange_weak(expected, expected - n,
                                                           std::memory_order_acq_rel)) {
                 // 尝试减n成功则返回 / Try decrement and return if successful
+                // 清空等待计数计数 / Clear count for waiting
                 return;
             }
 
@@ -280,7 +305,7 @@ public:
 
     // 普通任务
     void enqueue(const std::function<void()>& func) {
-        TaskItem task{std::move(func), false};
+        TaskItem task{-1,std::move(func), false};
         _tasksLock.lock();
         _tasksQ.emplace(task);
         _tasksLock.unlock();
@@ -289,18 +314,112 @@ public:
 
     // barrier 任务
     void enqueueBarrier(const std::function<void()>& func) {
-        TaskItem task{std::move(func), true};
+        TaskItem task{-1,std::move(func), true};
         _tasksLock.lock();
         _tasksQ.emplace(task);
         _tasksLock.unlock();
         _tasksSem.release();
     }
 
+    // 派发组任务
+    int getGroupId() {
+        // 随机生成一个groupId
+        _groupOptLock.lock();
+
+        int groupId = randomInt();
+
+        size_t repeatCount = 0;
+        while (_existGroups.count(groupId)) {
+            groupId = randomInt();
+            repeatCount++;
+            if (repeatCount > 100) {
+                // 获取groupId 失败
+                _groupOptLock.unlock();
+                return -1;
+            }
+        }
+
+        // 添加一个存在的group
+        _existGroups.insert(groupId);
+
+        _groupOptLock.unlock();
+        return groupId;
+    }
+
+    // 将一个任务添加到一个组
+    void enqueueGroup(int groupId,const std::function<void()>& func) {
+
+        _groupOptLock.lock();
+
+        if (_existGroups.count(groupId) == 0) {
+            // 不存在的groupId，作为普通任务入队。
+            enqueue(func);
+            _groupOptLock.unlock();
+            return;
+        }
+
+        if (_activeGroups.contains(groupId)) {
+            // 这个组处于活跃状态，已经在进行执行，不能入队，只能作为普通任务入队
+            enqueue(func);
+            _groupOptLock.unlock();
+            return;
+        }
+
+        // 增加一个组的活跃任务数量
+        _groupActiveTaskCount[groupId]++;
+
+        _groupOptLock.unlock();
+
+        // 添加组任务
+        TaskItem task{groupId, std::move(func), false};
+        _tasksLock.lock();
+        _tasksQ.emplace(task);
+        _tasksLock.unlock();
+        _tasksSem.release();
+    }
+
+    // 设置某一个组任务，完成后的回调
+    void setCallbackForGroup(int groupId,
+                             const std::function<void()>& func ,
+                             bool fireInstantly = true) {
+        _groupOptLock.lock();
+        if (_existGroups.contains(groupId)) {
+            // 已经添加了group对应的任务，申请过groupId。
+            _groupIdCallback[groupId] = std::move(func);
+            if (fireInstantly && _groupActiveTaskCount[groupId] > 0) {
+                // 让这个任务跑起来。
+                fireGroup(groupId);
+            }
+        }
+        _groupOptLock.unlock();
+
+    }
+
+    // 触发一个组任务开始工作
+    bool fireGroup(int groupId) {
+        _groupOptLock.lock();
+        if (_groupActiveTaskCount[groupId] > 0) {
+            // 已经添加了group对应的任务。将当前groupId 设置为活跃，可以执行。
+            _activeGroups.insert(groupId);
+            _groupOptLock.unlock();
+            return true;
+        }
+        _groupOptLock.unlock();
+        return false;
+    }
+
 private:
     struct TaskItem {
+        int groupID = -1;
         std::function<void()> func;
         bool isBarrier;
     };
+
+    SmartLock _groupOptLock;
+    std::unordered_map<int, std::function<void()>> _groupIdCallback;
+    std::unordered_map<int, std::atomic<uint32_t>> _groupActiveTaskCount;
+    std::unordered_set<int> _existGroups;
+    std::unordered_set<int> _activeGroups;
 
     std::vector<std::thread> threads;
     SmartLock _tasksLock;
@@ -330,26 +449,81 @@ private:
         threads.clear();
     }
 
+    inline void excueteGroupTask(TaskItem &task) {
+
+        int groupId = task.groupID;
+        uint32_t yieldCount = 0;
+        int sleepMicroseconds = 3;
+
+        // 只有当前groupId 处于活跃状态才执行，否则一直阻塞。
+        while (_activeGroups.contains(groupId) == false) {
+            if (yieldCount > 15) {
+                sleepMicroseconds = std::max(3,sleepMicroseconds);
+                sleepMicroseconds += sleepMicroseconds;
+                sleepMicroseconds = wrap20(sleepMicroseconds);
+                std::this_thread::sleep_for(std::chrono::microseconds(sleepMicroseconds));
+                yieldCount = 0;
+                continue;
+            }
+            std::this_thread::yield();
+            yieldCount++;
+        }
+
+        // 执行任务
+        task.func();
+
+        // 修改当前group的相关信息
+
+        _groupOptLock.lock();
+
+        _groupActiveTaskCount[groupId]--;
+
+        if (_groupActiveTaskCount[groupId] == 0) {
+            // 当前组的任务执行完毕的情况下。
+            // 执行当前组的回调
+            if (_groupIdCallback.contains(groupId)) {
+                _groupIdCallback[groupId]();
+            }
+            // 清空当前任务的相关计数
+            eraseRecordForGroupId(groupId);
+        }
+
+        _groupOptLock.unlock();
+    }
+
+    inline void eraseRecordForGroupId(int groupId) {
+        _groupActiveTaskCount.erase(groupId);
+        _groupIdCallback.erase(groupId);
+        _existGroups.erase(groupId);
+        _groupActiveTaskCount.erase(groupId);
+    }
+
+#define WORKER_MAX_YIELD_COUNT 100
+    
     void workLoop() {
+
+        uint32_t yieldCount = 0, sleepMicrosecons = 0;
 
         while (!stopFlag.load()) {
 
             // 确保没有正在运行的格栅任务 Ensure there is no running barrier tasks
 
-            if (barrierActive.load() == false) {
+            if (barrierActive.load(std::memory_order_acquire) == false) {
 
                 _tasksSem.acquire(); // 等待任务 Waiting for a task
-
                 _tasksLock.lock();
                 TaskItem &task = _tasksQ.front();
                 std::function<void()> taskFunc = std::move(task.func);
                 _tasksQ.pop();
                 _tasksLock.unlock();
 
+                // Reset yield count
+                yieldCount = 0;
+
                 // barrier / normal
                 if (task.isBarrier) {
                     barrierActive.store(true); // 阻止其他线程取任务
-                    while (normalTaskCount.load() != 0) {
+                    while (normalTaskCount.load(std::memory_order_acquire) != 0) {
                         std::this_thread::yield();
                     }
                     taskFunc(); // 立即执行 barrier
@@ -357,17 +531,32 @@ private:
                     continue;
                 } else {
                     normalTaskCount.fetch_add(1, std::memory_order_release);
-                    taskFunc(); // 立即执行普通任务
+                    if (task.groupID >= 0) {
+                        // 是一个组任务。
+                        excueteGroupTask(task);
+                    } else {
+                        taskFunc(); // 立即执行普通任务
+                    }
                     normalTaskCount.fetch_sub(1, std::memory_order_release);
                     continue;
                 }
 
             } else {
-                std::this_thread::yield(); // 队列为空或 barrier 阻塞时让出 CPU
+                if (yieldCount > WORKER_MAX_YIELD_COUNT) {
+                    // 没有执行任务的情况下，让出cpu次数太多，则进入休眠，避免浪费CPU资源
+                    // If the count of yield is too high without performing any tasks, the worker will enter sleep mode to avoid wasting CPU resources.
+                    sleepMicrosecons += 10;
+                    sleepMicrosecons = wrap8(sleepMicrosecons);
+                    std::this_thread::sleep_for(std::chrono::microseconds(sleepMicrosecons));
+                    continue;
+                }
+                yieldCount++;
+                std::this_thread::yield(); // 队列为空或 barrier 阻塞时让出 CPU / Yield the CPU when the queue is empty or the barrier is blocked.
             }
 
         }
     }
+
 };
 
 // 默认全局控制器实例 / Default global controllers
