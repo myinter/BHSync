@@ -32,7 +32,7 @@
  *      Group dispatch can simplify the dependencies of concurrent tasks
  *      and perform subsequent operations after all the tasks are completed.
 
- *   6. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
+ *   7. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
  *      Thread pool scheduling and barriers mimic the design of iOS/MacOS Grand Center Dispatching
  ******************************************************************************/
 
