@@ -6,13 +6,15 @@
  * 本文件提供一套基于 std::atomic 的同步工具，包括：
  *   - SmartLock         : 高性能自旋锁，支持自动让出 CPU / 休眠
  *                             High-performance spin lock, supports automatic CPU yield/sleep
- *   - RecursiveSmartSpinLock: 支持同线程递归锁，不阻塞自身
+ *   - RWSmartLock         : 高性能读写互斥自旋锁，支持自动让出 CPU / 休眠
+ *                             High-performance  Read-Write Lock spin lock, supports automatic CPU yield/sleep
+ *   - RecursiveSmartLock: 支持同线程递归锁，不阻塞自身
  *                             Recursive lock for the same thread without self-blocking
  *   - AtomicSemaphore       : 原子信号量，多线程同步控制
  *                             Atomic semaphore for multi-thread synchronization
- *   - BHGCDController       : 基于 SmartLock + atomic 的队列式任务线程池管理器
+ *   - BHGCDController       : 基于 SmartLock + atomic 的队列任务式线程池管理器
  *                             支持 barrier 任务和普通任务的有序执行
- *                             Task-queue-based thread pool manager based on SmartLock + atomic,
+ *                             Queue-based task-based thread pool manager based on SmartLock + atomic,
  *                             supports ordered execution of barrier and normal tasks
  *                             复刻了 MacOS/iOS 的 GCD 框架，借鉴其思想
  *                             Inspired by MacOS/iOS Grand Central Dispatch (GCD) framework
@@ -22,17 +24,18 @@
  *      High-performance thread synchronization, minimizing use of mutex and condition_variable
  *   2. 支持递归锁和自动休眠策略，减少自旋消耗
  *      Supports recursive locks and automatic sleep strategy to reduce spin overhead
- *   3. 支持线程池优先级，统一管理任务调度
+ *   3. 支持读写互斥锁，单写入多读取
+ *      Support read-write mutex lock, single write multiple read.
+ *   4. 支持线程池优先级，统一管理任务调度
  *      Supports thread pool priorities and unified task scheduling
- *   4. barrier 任务可以阻塞普通任务，保证执行顺序
+ *   5. barrier 任务可以阻塞普通任务，保证执行顺序
  *      Barrier tasks can block normal tasks to guarantee execution order
- *   5. barrier 可以用于读写互斥场景，简化读写互斥操作
+ *   6. barrier 可以用于读写互斥场景，简化读写互斥操作
  *      Barriers can be used for read-write mutual exclusion, simplifying read-write lock operations
- *   6. group dispatch 可以简化并行任务的依赖关系，在多个任务完成后执行后续操作
+ *   7. group dispatch 可以简化并行任务的依赖关系，在多个任务完成后执行后续操作
  *      Group dispatch can simplify the dependencies of concurrent tasks
  *      and perform subsequent operations after all the tasks are completed.
-
- *   7. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
+ *   8. 线程池调度和 barrier 模仿 MacOS/iOS GCD 的设计思想
  *      Thread pool scheduling and barriers mimic the design of iOS/MacOS Grand Center Dispatching
  ******************************************************************************/
 
@@ -87,13 +90,14 @@ int randomInt(int min = 0, int max = 1000000) {
 // ================= SpinLockBase 自旋锁基类 =================
 template<typename Derived>
 class SpinLockBase {
-private:
-    std::atomic_flag flag = ATOMIC_FLAG_INIT;  // 原子标志位 / Atomic flag
 
 protected:
+    std::atomic_flag flag = ATOMIC_FLAG_INIT;  // 原子标志位 / Atomic flag
+
     uint32_t _maxSpinCount;  // 自旋次数 / Spin count
     uint32_t _maxYieldCount;  // 让出CPU次数 / Yield count
     uint32_t _sleepMicros;  // 休眠微秒数 / Sleep microseconds
+    bool _needSleep;
 
     void spinLockLoop() {
         uint32_t spins = 0, yields = 0;  // 当前自旋和让出计数 / Current spin and yield counters
@@ -102,7 +106,6 @@ protected:
         while (true) {
             // 尝试获得锁 / Try to acquire lock
             if (!flag.test_and_set(std::memory_order_acquire)) {
-                // 实际休眠长度清零 / Reset actualSleepMicros_
                 return;
             }
 
@@ -116,17 +119,19 @@ protected:
                 continue;
             }
 
-            actualSleepMicros += _sleepMicros;
-            actualSleepMicros = wrap16(actualSleepMicros);
+            if (_needSleep) {
+                actualSleepMicros += _sleepMicros;
+                actualSleepMicros = wrap16(actualSleepMicros);
 
-            // 循环等待次数实在太多，微休眠 / If loop ran to many time,sleep briefly.
-            std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros));
+                // 循环等待次数实在太多，微休眠 / If loop ran to many time,sleep briefly.
+                std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros));
+            }
         }
     }
 
 public:
-    SpinLockBase(int spin = 5, int yield = 8, int sleep_us = 3)
-        : _maxSpinCount(spin), _maxYieldCount(yield), _sleepMicros(sleep_us) {}
+    SpinLockBase(bool needSleep = true, int spin = 5, int yield = 8, int sleep_us = 3)
+        : _maxSpinCount(spin), _maxYieldCount(yield), _sleepMicros(sleep_us), _needSleep(needSleep) {}
 
     void unlock() { flag.clear(std::memory_order_release); }  // 解锁 / Unlock
 };
@@ -137,6 +142,108 @@ public:
     using SpinLockBase::SpinLockBase;  // 继承构造函数 / Inherit constructor
 
     void lock() { spinLockLoop(); }  // 上锁 / Lock
+};
+
+// ================= RWSmartLock 智能自旋读写锁 / Intelligent Spin-Based Read-Write Lock =================
+class RWSmartLock : public SpinLockBase<RWSmartLock> {
+private:
+    std::atomic<int> readCount;
+
+    void spinLockWriting() {
+
+        uint32_t spins = 0, yields = 0;  // 当前自旋和让出计数 / Current spin and yield counters
+        uint32_t actualSleepMicros = 0;
+        
+        // 等待直到不再有其他写入操作。/ Wait until there are no other write operations.
+        while (flag.test_and_set(std::memory_order_acquire)) {
+            if (++spins < _maxSpinCount) continue;
+
+            if (++yields < _maxYieldCount) {
+                std::this_thread::yield();
+                continue;
+            }
+
+            if (_needSleep) {
+                actualSleepMicros += _sleepMicros;
+                actualSleepMicros = wrap16(actualSleepMicros);
+                std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros));
+            }
+        }
+
+        // 等待直到不再有其他读取入操作。/ Wait until there are no other read operations.
+        spins = yields = actualSleepMicros = 0;
+
+        while (readCount.load(std::memory_order_acquire) != 0) {
+            if (++spins < _maxSpinCount) continue;
+
+            if (++yields < _maxYieldCount) {
+                std::this_thread::yield();
+                continue;
+            }
+
+            if (_needSleep) {
+                actualSleepMicros += _sleepMicros;
+                actualSleepMicros = wrap16(actualSleepMicros);
+                std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros));
+            }
+        }
+
+    }
+
+    void spinLoopForReadable() {
+
+        uint32_t spins = 0, yields = 0;  // 当前自旋和让出计数 / Current spin and yield counters
+        uint32_t actualSleepMicros = 0;
+
+        // 等待直到不再有其他读写入操作。/ Wait until there are no other read or write operations.
+        while (flag.test() == true) {
+
+            if (++spins < _maxSpinCount) {
+                continue;
+            }
+
+            if (++yields < _maxYieldCount) {
+                std::this_thread::yield();
+                continue;
+            }
+
+            if (_needSleep) {
+                actualSleepMicros += _sleepMicros;
+                actualSleepMicros = wrap16(actualSleepMicros);
+
+                // 循环等待次数实在太多，微休眠 / If loop ran to many time,sleep briefly.
+                std::this_thread::sleep_for(std::chrono::microseconds(actualSleepMicros));
+            }
+
+        }
+
+    }
+
+public:
+    using SpinLockBase::SpinLockBase;  // 继承构造函数 / Inherit constructor
+
+    void writeLock() {
+        spinLockWriting();
+    }
+
+    void writeUnlock() {
+        unlock();
+    }
+
+    void readLock() {
+
+        // 确保没有其他任何写操作 / Ensure there is no writing operation
+        spinLoopForReadable();
+        // 增加当前读的计数 / Increase readcount
+        readCount.fetch_add(1);
+
+    }
+
+    void readUnlock() {
+        // 减少读取计数 / Decrease readcount
+        readCount.fetch_sub(1);
+    }
+
 };
 
 // ================= RecursiveSmartLock 递归自旋锁 =================
@@ -325,7 +432,7 @@ public:
         _tasksSem.release();
     }
 
-    // 派发组任务
+    // 获得一个用于派发组任务的唯一标识 / Obtain a unique identifier for dispatch grouped tasks.
     int getGroupId() {
         // 随机生成一个groupId
         _groupOptLock.lock();
@@ -337,7 +444,7 @@ public:
             groupId = randomInt();
             repeatCount++;
             if (repeatCount > 100) {
-                // 获取groupId 失败
+                // 获取唯一groupId 失败
                 _groupOptLock.unlock();
                 return -1;
             }
@@ -351,7 +458,7 @@ public:
     }
 
     // 将一个任务添加到一个组
-    void enqueueGroup(int groupId,const std::function<void()>& func) {
+    void enqueueGroup(int groupId, const std::function<void()>& func) {
 
         _groupOptLock.lock();
 
@@ -364,17 +471,19 @@ public:
 
         if (_activeGroups.contains(groupId)) {
             // 这个组处于活跃状态，已经在进行执行，不能入队，只能作为普通任务入队
+            // This group is in an active state and is already being executed. 
+            // It cannot be queued and can only be added to the queue as a regular task.
             enqueue(func);
             _groupOptLock.unlock();
             return;
         }
 
-        // 增加一个组的活跃任务数量
+        // 增加一个组的活跃任务计数 / Increase the active task count of a group
         _groupActiveTaskCount[groupId]++;
 
         _groupOptLock.unlock();
 
-        // 添加组任务
+        // 添加组任务 / Add to task queue as a grouped task
         TaskItem task{groupId, std::move(func), false};
         _tasksLock.lock();
         _tasksQ.emplace(task);
@@ -399,11 +508,13 @@ public:
 
     }
 
-    // 触发一个组任务开始工作
+    // 触发一个组任务开始工作 / Trigger the start of a group task to begin working.
     bool fireGroup(int groupId) {
         _groupOptLock.lock();
         if (_groupActiveTaskCount[groupId] > 0) {
-            // 已经添加了group对应的任务。将当前groupId 设置为活跃，可以执行。
+            // 如果已经添加了group对应的任务。将当前groupId 设置为活跃，可以执行。
+            // If the corresponding tasks for the group have already been added, 
+            // set the current groupId as active and it can be executed.
             _activeGroups.insert(groupId);
             _groupOptLock.unlock();
             return true;
@@ -500,7 +611,6 @@ private:
         _groupIdCallback.erase(groupId);
         _existGroups.erase(groupId);
         _activeGroups.erase(groupId);
-        _groupActiveTaskCount.erase(groupId);
     }
 
 #define WORKER_MAX_YIELD_COUNT 100
