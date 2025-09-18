@@ -16,6 +16,8 @@ Modules include:
 
 * **SmartLock**：高性能智能自旋锁，支持自动让出 CPU / 休眠
   High-performance smart spin lock, supports automatic CPU yield/sleep
+* **RWSmartLock**：高性能智能读写互斥自旋锁，支持自动让出 CPU / 休眠
+  High-performance read-write-mutex smart spin lock, supports automatic CPU yield/sleep
 * **RecursiveSmartLock**：支持同线程递归锁，不阻塞自身
   Recursive lock for the same thread without self-blocking
 * **AtomicSemaphore**：原子信号量，多线程同步控制
