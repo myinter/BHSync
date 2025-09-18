@@ -20,8 +20,8 @@
  *                             Inspired by MacOS/iOS Grand Central Dispatch (GCD) framework
  *
  * 功能简述 / Features:
- *   1. 高性能线程同步，尽可能避免 mutex 和 condition_variable
- *      High-performance thread synchronization, minimizing use of mutex and condition_variable
+ *   1. 高性能线程同步，杜绝使用 mutex 和 condition_variable
+ *      High-performance thread synchronization, avoid using of mutex and condition_variable
  *   2. 支持递归锁和自动休眠策略，减少自旋消耗
  *      Supports recursive locks and automatic sleep strategy to reduce spin overhead
  *   3. 支持读写互斥锁，单写入多读取
