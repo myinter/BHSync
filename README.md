@@ -73,7 +73,139 @@ void recursiveFunction(int depth) {
 
 ---
 
-### 2. AtomicSemaphore 多线程同步打印 / AtomicSemaphore Demo
+### 2. RWSmartLock 读写互斥智能锁 / RWSmartLock read-write-mutex lock Demo
+
+```cpp
+
+RWSmartLock rwLock;
+
+void readWriteLock() {
+
+    BHGCD::queues.ui.enqueue([&]() {
+
+        rwLock.readLock();
+        std::cout<<"读取任务 0"<<std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 5000));
+        std::cout<<"读取任务 0 完成"<<std::endl;
+        rwLock.readUnlock();
+
+    });
+
+    BHGCD::queues.ui.enqueue([&]() {
+        
+        rwLock.writeLock();
+        std::cout<<"写入任务 1"<<std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 5000));
+        std::cout<<"写入任务完成 1"<<std::endl;
+        rwLock.writeUnlock();
+
+    });
+    
+    BHGCD::queues.ui.enqueue([&]() {
+
+        rwLock.readLock();
+        std::cout<<"读取任务 1"<<std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
+        std::cout<<"读取任务 1 完成"<<std::endl;
+        rwLock.readUnlock();
+
+    });
+
+    BHGCD::queues.ui.enqueue([&]() {
+        
+        rwLock.writeLock();
+        std::cout<<"写入任务 2 "<<std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 5000));
+        std::cout<<"写入任务完成 2 "<<std::endl;
+        rwLock.writeUnlock();
+
+    });
+
+    
+    BHGCD::queues.ui.enqueue([&]() {
+        
+        rwLock.writeLock();
+        std::cout<<"写入任务 K"<<std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 5000));
+        std::cout<<"写入任务完成 K "<<std::endl;
+        rwLock.writeUnlock();
+
+    });
+
+    BHGCD::queues.ui.enqueue([&]() {
+
+        rwLock.readLock();
+        std::cout<<"读取任务 S "<<std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 5000));
+        std::cout<<"读取任务 S 完成"<<std::endl;
+        rwLock.readUnlock();
+    
+
+    });
+
+    BHGCD::queues.ui.enqueue([&]() {
+
+        rwLock.readLock();
+        std::cout<<"读取任务 7 "<<std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 5000));
+        std::cout<<"读取任务 7 完成"<<std::endl;
+        rwLock.readUnlock();
+
+    });
+
+
+    BHGCD::queues.ui.enqueue([&]() {
+
+        rwLock.readLock();
+        std::cout<<"读取任务 2 "<<std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 5000));
+        std::cout<<"读取任务 2 完成"<<std::endl;
+        rwLock.readUnlock();
+        
+
+
+    });
+
+
+    BHGCD::queues.ui.enqueue([&]() {
+        
+        rwLock.writeLock();
+        std::cout<<"写入任务 s"<<std::endl;
+        std::cout<<"写入任务完成 s"<<std::endl;
+        rwLock.writeUnlock();
+
+    });
+
+
+}
+
+
+```
+读写并行操作互斥的效果: / The effect of mutual exclusion for read-write parallel operations:
+
+``` text
+读取任务 0
+读取任务 0 完成
+写入任务 1
+写入任务完成 1
+读取任务 S 
+读取任务 S 完成
+写入任务 K
+写入任务完成 K 
+读取任务 2 
+读取任务 7 
+读取任务 1
+读取任务 1 完成
+读取任务 2 完成
+读取任务 7 完成
+写入任务 2 
+写入任务完成 2 
+写入任务 s
+写入任务完成 s
+
+```
+
+### 3. AtomicSemaphore 多线程同步打印 / AtomicSemaphore Demo
 
 ```cpp
 #include <iostream>
@@ -135,7 +267,7 @@ AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-AABC-
 
 ---
 
-### 3. BHGCDController Barrier 与普通任务调度 / GCD-style Thread Pool Demo
+### 4. BHGCDController Barrier 与普通任务调度 / GCD-style Thread Pool Demo
 
 ```cpp
 #include <iostream>
@@ -234,7 +366,7 @@ enabling read–write mutual exclusion as well as structured task grouping and p
 ---
 
 ---
-### 4. BHGCDController 组派发和完成后回调
+### 5. BHGCDController 组派发和完成后回调
 Group-dispatch and callback after group of tasks finished
 
 ```cpp
